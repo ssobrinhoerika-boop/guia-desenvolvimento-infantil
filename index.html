@@ -35,21 +35,50 @@ function chosen(name){return document.querySelector('input[name="'+name+'"]:chec
 function age(d,t){let m=(t.getFullYear()-d.getFullYear())*12+t.getMonth()-d.getMonth();return m-(t.getDate()<d.getDate()?1:0)}
 el("start").onclick=()=>{try{el("error").textContent="";const raw=el("dob").value;if(!raw)throw Error("Informe a data de nascimento.");const d=new Date(raw+"T12:00:00"),now=new Date();if(!Number.isFinite(d.getTime())||d>now)throw Error("Confira a data de nascimento.");if(!el("pre").value)throw Error("Informe se houve prematuridade.");if(el("pre").value==="Sim"&&!el("weeks").value)throw Error("Informe as semanas de gestação.");months=age(d,now);if(months>71)throw Error("O guia contempla crianças até 5 anos e 11 meses.");let md=el("md").value;const weight=el("weight").value.trim().replace(",",".");const height=el("height").value.trim().replace(",",".");if(weight&&Number(weight)>0&&Number(weight)<=100)el("weight").value=weight;else if(weight)el("weight").value="";if(height&&Number(height)>=25&&Number(height)<=160)el("height").value=height;else if(height)el("height").value="";const localToday=new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);if((weight||height)&&!md){md=localToday;el("md").value=md}if(md){const measureDate=new Date(md+"T12:00:00");const today=new Date(now.getFullYear(),now.getMonth(),now.getDate(),12);if(!Number.isFinite(measureDate.getTime())||measureDate>today||measureDate<d){el("md").value="";md="";}}corrected=months;if(el("pre").value==="Sim"&&months<24)corrected=Math.max(0,Math.floor((now-d)/86400000/30.4375-(40-Number(el("weeks").value))*7/30.4375));phase=BANK.filter(x=>x[0]<=corrected).at(-1)||BANK[0];el("phase").textContent="Marcos por volta de "+phase[1];el("age").textContent="Idade cronológica: "+months+" meses"+(el("pre").value==="Sim"?" · idade corrigida aproximada: "+corrected+" meses":"");el("questions").innerHTML=phase[2].map((q,i)=>'<div class="q"><strong>'+(i+1)+'. '+q+'</strong>'+radios("q"+i)+'</div>').join("");el("reg").innerHTML=radios("reg");el("intro").hidden=true;el("quiz").hidden=false;scrollTo(0,0)}catch(e){el("error").textContent=e.message}};
 el("evaluate").onclick=()=>{const ans=phase[2].map((_,i)=>chosen("q"+i)),reg=chosen("reg");if(ans.some(x=>!x)||!reg){el("qerror").textContent="Responda todas as perguntas, inclusive sobre perda de habilidades.";return}let html="<p><strong>Nascimento:</strong> "+el("dob").value.split("-").reverse().join("/")+"<br><strong>Data:</strong> "+new Date().toLocaleDateString("pt-BR")+"<br><strong>Idade:</strong> "+months+" meses"+(corrected!==months?" (corrigida aprox.: "+corrected+" meses)":"")+"</p><h3>Crescimento</h3><p>Sexo: "+(el("sex").value||"Não informado")+"<br>Peso: "+(el("weight").value||"Não informado")+" kg<br>Comprimento/altura: "+(el("height").value||"Não informado")+" cm<br>Data das medidas: "+(el("md").value||"Não informada")+"</p><h3>Habilidades observadas</h3>";html+=phase[2].map((q,i)=>"<p>"+q+"<br><strong>"+({sim:"Sim, já faz",nao:"Ainda não",duvida:"Não sei"}[ans[i]])+"</strong></p>").join("");const peso=Number(el("weight").value),altura=Number(el("height").value);if(peso>0&&altura>0){const imc=peso/((altura/100)**2);html+="<p><strong>IMC calculado:</strong> "+imc.toFixed(1).replace(".",",")+" kg/m². <small>O valor isolado do IMC não permite classificar o estado nutricional infantil; requer comparação com o indicador IMC-por-idade da OMS.</small></p>"}html+="<p><strong>Posição de aferição:</strong> "+(el("measureMethod").value||"Não informada")+"</p>";html+=growthReport();html+="<h3>Orientações</h3><div class='warn'><strong>Sobre o crescimento:</strong> As medidas de peso e comprimento/altura devem ser interpretadas em conjunto com a idade, o sexo, a prematuridade quando aplicável e as curvas de crescimento utilizadas pelo Ministério da Saúde. Uma medida isolada não determina se o crescimento está adequado. Características familiares, alimentação, condições de saúde e diferenças na técnica de medição podem influenciar os valores. <strong>Leve as medidas à consulta, compare com as obtidas pelo profissional de saúde e peça orientação sobre como medir corretamente seu filho.</strong></div>";if(reg==="sim")html+='<p class="warn"><strong>Procure avaliação médica sem demora:</strong> perda de habilidades adquiridas precisa ser investigada.</p>';else if(ans.includes("nao"))html+='<p class="warn">Converse com o pediatra sobre as habilidades ainda não observadas. Não espere o próximo checklist se houver preocupação.</p>';else html+='<p class="warn">Continue observando o desenvolvimento da criança. Respostas positivas não excluem alterações.</p>';if(ans.includes("duvida"))html+="<p>Observe as habilidades sobre as quais tem dúvidas e converse com o pediatra.</p>";html+="<p>Converse, leia e brinque diariamente de acordo com a idade. Para bebês, tempo de bruços somente acordados e supervisionados; para dormir, barriga para cima.</p><p><small>Relato do responsável, sem valor diagnóstico. Levar à consulta com a Caderneta da Criança.</small></p>";el("report").innerHTML=html;el("result").hidden=false;el("result").scrollIntoView()};
-function loadScript(src){return new Promise((resolve,reject)=>{const s=document.createElement("script");s.src=src;s.onload=resolve;s.onerror=()=>reject(Error("Não foi possível carregar o gerador de PDF. Verifique a conexão."));document.head.appendChild(s)})}
-el("printReport").onclick=()=>{window.print();el("pdfStatus").textContent="No iPhone, você também pode usar Baixar PDF no celular para salvar o arquivo diretamente."};
-el("downloadPdf").onclick=async()=>{
- const status=el("pdfStatus"),button=el("downloadPdf");button.disabled=true;status.textContent="Preparando o PDF...";
+
+/* Gerador PDF local: não depende de CDNs, impressão nem conexão adicional. */
+function pdfWinAnsi(text){return Array.from(text).map(ch=>{const n=ch.codePointAt(0);const extras={"€":128,"‚":130,"ƒ":131,"„":132,"…":133,"†":134,"‡":135,"ˆ":136,"‰":137,"Š":138,"‹":139,"Œ":140,"Ž":142,"‘":145,"’":146,"“":147,"”":148,"•":149,"–":150,"—":151,"˜":152,"™":153,"š":154,"›":155,"œ":156,"ž":158,"Ÿ":159};const v=n<=255?n:extras[ch];return v===undefined?63:v})}
+function pdfEscape(text){return pdfWinAnsi(text).map(v=>v===40||v===41||v===92?"\\"+String.fromCharCode(v):v<32&&v!==9?" ":String.fromCharCode(v)).join("")}
+function pdfWrap(text,max){const words=text.replace(/\s+/g," ").trim().split(" "),lines=[];let line="";for(const w of words){if((line+" "+w).length>max&&line){lines.push(line);line=w}else line+=(line?" ":"")+w}if(line)lines.push(line);return lines}
+function makeLocalPdf(){
+ const pages=[];let commands=[],y=785;
+ const next=()=>{if(commands.length)pages.push(commands.join("\n"));commands=[];y=785};
+ const write=(txt,size,bold,color,indent=0)=>{const width=size>=14?57:size>=12?76:94;const lines=pdfWrap(txt,width-indent/6);for(const line of lines){if(y<55)next();commands.push("BT /"+(bold?"F2":"F1")+" "+size+" Tf "+color+" rg 42 "+y+" Td ("+pdfEscape(line)+") Tj ET");y-=size*1.43}y-=3};
+ write("CLÍNICA DRA. ERIKA SOBRINHO",15,true,"0.20 0.33 0.43");
+ write("Guia Interativo do Desenvolvimento Infantil",12,false,"0.33 0.43 0.49");
+ write("Resumo para levar à consulta",14,true,"0.20 0.33 0.43");y-=5;
+ for(const node of el("report").children){
+  const txt=node.innerText.trim();if(!txt)continue;
+  if(/^H[1-6]$/.test(node.tagName)){y-=7;write(txt,12,true,"0.28 0.41 0.50");continue}
+  const lines=txt.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+  for(const line of lines)write(line,10.5,false,"0.22 0.27 0.30");
+  y-=2;
+ }
+ next();
+ const objects=[null],add=x=>{objects.push(x);return objects.length-1};
+ const catalog=add(""),root=add(""),font1=add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"),font2=add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
+ const refs=[];for(const p of pages){const bytes=pdfWinAnsi(p);const stream=add("<< /Length "+bytes.length+" >>\nstream\n"+p+"\nendstream");const page=add("<< /Type /Page /Parent "+root+" 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 "+font1+" 0 R /F2 "+font2+" 0 R >> >> /Contents "+stream+" 0 R >>");refs.push(page)}
+ objects[root]="<< /Type /Pages /Count "+refs.length+" /Kids ["+refs.map(i=>i+" 0 R").join(" ")+"] >>";
+ objects[catalog]="<< /Type /Catalog /Pages "+root+" 0 R >>";
+ let output="%PDF-1.4\n",offsets=[0];
+ for(let i=1;i<objects.length;i++){offsets[i]=pdfWinAnsi(output).length;output+=i+" 0 obj\n"+objects[i]+"\nendobj\n"}
+ const xref=pdfWinAnsi(output).length;output+="xref\n0 "+objects.length+"\n0000000000 65535 f \n";
+ for(let i=1;i<objects.length;i++)output+=String(offsets[i]).padStart(10,"0")+" 00000 n \n";
+ output+="trailer\n<< /Size "+objects.length+" /Root "+catalog+" 0 R >>\nstartxref\n"+xref+"\n%%EOF";
+ return new Blob([new Uint8Array(pdfWinAnsi(output))],{type:"application/pdf"});
+}
+let currentPdfUrl=null;
+async function deliverPdf(){
+ const status=el("pdfStatus"),button=el("downloadPdf");button.disabled=true;status.textContent="Preparando PDF...";
  try{
-  if(!window.pdfMake){await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.20/pdfmake.min.js");await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.20/vfs_fonts.js")}
-  const content=[{text:"CLÍNICA DRA. ERIKA SOBRINHO",style:"brand"},{text:"Guia Interativo do Desenvolvimento Infantil",style:"subtitle"},{text:"Resumo para levar à consulta",style:"title"}];
-  for(const node of el("report").children){
-   if(/^H[1-6]$/.test(node.tagName)){content.push({text:node.innerText.trim(),style:"section"});continue}
-   const txt=node.innerText.trim();if(!txt)continue;
-   content.push({text:txt,style:node.classList.contains("warn")?"notice":"paragraph"});
-  }
-  const doc={pageSize:"A4",pageMargins:[38,38,38,38],content,styles:{brand:{fontSize:14,bold:true,color:"#36556b",alignment:"center",margin:[0,0,0,5]},subtitle:{fontSize:11,color:"#526c7c",alignment:"center",margin:[0,0,0,12]},title:{fontSize:15,bold:true,color:"#36556b",margin:[0,0,0,10]},section:{fontSize:12,bold:true,color:"#526c7c",margin:[0,9,0,4]},paragraph:{fontSize:10.5,color:"#34434b",margin:[0,2,0,4],lineHeight:1.15},notice:{fontSize:10,color:"#34434b",background:"#f7f5f0",margin:[0,6,0,7],lineHeight:1.15}},defaultStyle:{font:"Roboto"},footer:(p,pages)=>({text:"Clínica Dra. Erika Sobrinho  •  "+p+" / "+pages,alignment:"center",fontSize:8,color:"#647e8e",margin:[0,9,0,0]})};
-  window.pdfMake.createPdf(doc).download("guia-desenvolvimento-infantil.pdf");
-  status.textContent="PDF preparado. Verifique os downloads do navegador ou o app Arquivos.";
- }catch(err){status.textContent="Não foi possível baixar o PDF: "+err.message+". Use Imprimir / Compartilhar ou abra o guia no Safari."}finally{button.disabled=false}
-};
+  const blob=makeLocalPdf(),file=new File([blob],"guia-desenvolvimento-infantil.pdf",{type:"application/pdf"});
+  if(navigator.canShare&&navigator.canShare({files:[file]})&&navigator.share){try{await navigator.share({files:[file],title:"Guia do Desenvolvimento Infantil"});status.textContent="PDF compartilhado ou salvo pelo menu do celular.";return}catch(e){if(e.name==="AbortError"){status.textContent="Compartilhamento cancelado.";return}}}
+  if(currentPdfUrl)URL.revokeObjectURL(currentPdfUrl);currentPdfUrl=URL.createObjectURL(blob);
+  const link=document.createElement("a");link.href=currentPdfUrl;link.download=file.name;document.body.appendChild(link);link.click();link.remove();
+  status.textContent="PDF gerado. Se o navegador não baixar, toque em Abrir PDF abaixo ou abra o guia no Safari.";
+  let open=el("openPdf");if(!open){open=document.createElement("a");open.id="openPdf";open.textContent="Abrir PDF";open.target="_blank";open.rel="noopener";open.style.cssText="display:block;text-align:center;padding:12px;border:1px solid #647e8e;border-radius:10px;color:#36556b;margin:8px 0";status.after(open)}open.href=currentPdfUrl;
+ }catch(e){status.textContent="Não foi possível gerar o PDF: "+e.message}finally{button.disabled=false}
+}
+el("downloadPdf").onclick=deliverPdf;
+el("printReport").onclick=()=>{if(typeof window.print==="function")window.print();el("pdfStatus").textContent="Se não abrir a impressão neste navegador, utilize Baixar PDF no celular."};
 </script></html>
